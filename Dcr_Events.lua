@@ -223,7 +223,7 @@ function D:UpdatePlayerPet () -- {{{
     end
 
     -- if we've changed of pet
-    if (last_petType ~= curr_petType) then
+    if (not last_petType or canaccessvalue(curr_petType) and last_petType ~= curr_petType) then
         if (curr_petType) then D:Debug ("|cFF0066FFPet name changed:",curr_petType,"|r"); else D:Debug ("|cFF0066FFNo more pet!|r"); end; -- debug info only
 
         last_petType = curr_petType;
@@ -492,7 +492,12 @@ function D:PLAYER_ALIVE()
 end
 
 function D:LEARNED_SPELL_IN_TAB()
-    D:Debug("|cFFFF0000A new spell was learned, scheduling a reconfiguration|r");
+    D:Debug("|cFFFF0000A new spell was learned, scheduling a reconfiguration (LEARNED_SPELL_IN_TAB)|r");
+    self:ScheduleDelayedCall("Dcr_ReConfigure", self.ReConfigure, 4, self);
+end
+
+function D:LEARNED_SPELL_IN_SKILL_LINE()
+    D:Debug("|cFFFF0000A new spell was learned, scheduling a reconfiguration (LEARNED_SPELL_IN_SKILL_LINE)|r");
     self:ScheduleDelayedCall("Dcr_ReConfigure", self.ReConfigure, 4, self);
 end
 
@@ -607,7 +612,7 @@ do
                 self:checkForDebuff(UnitID)
             end
 
-            if o_auraUpdateInfo.addedAuras then
+            if o_auraUpdateInfo.addedAuras and canaccessvalue(o_auraUpdateInfo.addedAuras) then
                 for _, aura in pairs(o_auraUpdateInfo.addedAuras) do
 
                     local secretedName = canaccessvalue(aura.name) and aura.name or "*secret*"
@@ -681,7 +686,7 @@ do
                 end
 
                 -- get out of here if this is just about a buff, combat log event manager handles those... unless there is no debuff because the last was removed
-                if not self.MicroUnitF.UnitToMUF[UnitID].IsDebuffed and not UnitDebuff(UnitID, 1) then
+                if not self.MicroUnitF.UnitToMUF[UnitID].IsDebuffed and not D.UnitDebuff(UnitID, 1) then
                     --self:Debug(UnitID, " |cFFFF7711has no debuff|r (UNIT_AURA)");
                     return;
                 end

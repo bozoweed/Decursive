@@ -1,5 +1,73 @@
-Decursive 2.8.0-RC3
-===================
+Decursive 2.8.2
+===============
+
+Decursive 2.8.2 (2026-08-12)
+----------------------------
+
+
+WoW 12.1 status:
+
+Decursive is currently not compatible with WoW 12.1. It will display a message
+to that effect and will not initialize (preventing Lua errors). The message is
+shown only once.
+
+An update might come in the following weeks if I can find some time to work on
+it (tens of hours of work involved with uncertain results...)
+You can keep Decursive enabled as it won't use any CPU and hopefully, one day it'll work again once it is updated.
+
+
+Decursive 2.8.1 (2026-07-22)
+----------------------------
+
+- Fix for WoW classic
+
+- Disable scanning for debuffs in 12.1
+
+  Blizzard broke everything again so a lot of work is once more required to make Decursive compatible...
+  So until then, this version of Decursive will just not report debuffs if used in 12.1.
+
+
+Decursive 2.8.0 (2026-07-05)
+----------------------------
+
+- Fix for Classic-MOP
+
+- Mark release stable for all classic version of WoW
+
+
+Decursive 2.8.0-RC7 (2026-05-22)
+--------------------------------
+
+Midnight: Fix when switching from a character with a pet with a curing ability
+ to a character without a pet, Decursive would still detect the pet spell
+ (C_SpellBook.IsSpellInSpellBook() API bug)
+
+Midnight: Disable "Wrong button" warnings as this feature cannot work anymore in midnight and created confusion.
+
+
+Decursive 2.8.0-RC6 (2026-05-17)
+--------------------------------
+
+Midnight: fix another rare secret value error
+
+Midnight: Add some debug to diagnose a tainting issue involving tooltips...
+
+
+Decursive 2.8.0-RC5 (2026-04-18)
+--------------------------------
+
+- No visible change apart from the strengthening of a compatibility layer.
+  Staying in the RC release stage until 12.0.5 lest something else gets broken.
+
+
+Decursive 2.8.0-RC4 (2026-03-22)
+--------------------------------
+
+Midnight fixes
+:
+ - New attempt to fix GameTooltip tainting issue (see GitHub issue #51)
+ - Always hide the spell cool down countdown on MUFs
+ - fix another secret value issue
 
 
 Decursive 2.8.0-RC3 (2026-03-16)

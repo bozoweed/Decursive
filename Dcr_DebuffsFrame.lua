@@ -744,11 +744,13 @@ do
     local GetSpellName = _G.C_Spell and _G.C_Spell.GetSpellName or function (spellId) return (GetSpellInfo(spellId)) end;
     local ttHelpLines = {}; -- help tooltip text
     local TooltipUpdate = 0; -- help tooltip change update check
+    local ttNumLine = 2
+    D.temp_tt_taint_debug = 0
 
     local tip = CreateFrame("GameTooltip", "DcrSecretTooltip", UIParent, "SharedTooltipTemplate")
+    tip:SetClampedToScreen(true)
 
     local function ShowMUFToolTip(unit, status, debuffs)
-        tip:ClearLines()
         tip:SetOwner(D.MFContainer, "ANCHOR_NONE")
 
         local index = GetRaidTargetIndex(unit)
@@ -779,14 +781,15 @@ do
                     (Debuff.Applications > 0 and (" (x%s)"):format(Debuff.Applications) or "")
 
                 tip:AddLine(colored .. appCount)
+                ttNumLine = ttNumLine + 1
             end
         end
 
         -- Display the tooltip
         tip:ClearAllPoints()
-        tip:SetClampedToScreen(true)
         tip:SetPoint(MicroUnitF:GetHelperAnchor(false, true))
         tip:Show()
+        D.temp_tt_taint_debug = D.temp_tt_taint_debug + 1
 
         -- if the tooltip is at the top of the screen it means it's overlaping the MUF, let's move the tooltip beneath the first MUF.
         if tip:GetTop() and floor(tip:GetTop() + 40) >= floor(UIParent:GetTop()) then -- if at top (the default game tooltip has a kind of padding...)
@@ -896,11 +899,25 @@ do
 
     end -- }}}
 
+
+    local function cleanAndHideToolTip()
+        -- "clean" the tooltip to make sure the UI tooltip system is not trying
+        -- to recycle lines with secret values at some points later down the
+        -- road (just a guess to fix the "Blizzard_UIWidgetTemplateTextWithState.lua:35: attempt to perform arithmetic on local 'textHeight'" tainting issue, we'll see if it works...)
+        tip:ClearLines()
+        for i=1, ttNumLine, 1 do
+            tip:AddLine(("cleanText_%d"):format(i))
+        end
+
+        tip:Hide()
+        D.temp_tt_taint_debug = D.temp_tt_taint_debug - 1
+        D:Debug("tt: ", D.temp_tt_taint_debug)
+    end
+
     function MicroUnitF:OnLeave(frame) -- {{{
         D.Status.MouseOveringMUF = false;
+        cleanAndHideToolTip();
 
-        tip:ClearLines()
-        tip:Hide()
     end -- }}}
 
     local keyTemplate = "|cFF11FF11%s|r-|cFF11FF11%s|r";
@@ -911,9 +928,9 @@ do
     end
 
     function D.MicroUnitF:OnCornerEnter(frame)
-
-        tip:ClearLines()
-        tip:Hide()
+        if tip:IsShown() then
+            cleanAndHideToolTip();
+        end
 
         if not keyHelp then
             keyHelp = {
@@ -1003,24 +1020,26 @@ function MicroUnitF.OnPreClick(frame, Button) -- {{{
             end
         end
 
-        if RequestedPrio and NeededPrio ~= RequestedPrio then
-            D:errln(L["HLP_WRONGMBUTTON"]);
-            if NeededPrio and MF_colors[NeededPrio] then
-                D:Println(L["HLP_USEXBUTTONTOCURE"], D:ColorText(DC.MouseButtonsReadable[ D.db.global.MouseButtons[NeededPrio] ], D:NumToHexColor(MF_colors[NeededPrio])));
-                --@debug@
-            else
-                D:AddDebugText("Button wrong click info bug: NeededPrio:", NeededPrio, "Unit:", Unit, "RequestedPrio:", RequestedPrio, "Button clicked:", Button, "MF_colors:", unpack(MF_colors), "Debuff Type:", frame.Object.Debuffs[1].Type);
-                --@end-debug@
-            end
-        elseif RequestedPrio and D.Status.HasSpell then -- useless block in Midnight as there is no CLEU anymore to detect cast failures.
-            D.Status.ClickCastingWIP = true;
-            D:Debug("ClickCastingWIP")
-            D.Status.ClickedMF = frame.Object; -- used to update the MUF on cast success and failure to know which unit is being cured
-            D.Status.ClickedMF.SPELL_CAST_SUCCESS = false;
-            local spell = D.Status.CuringSpells[frame.Object.Debuffs[1].Type];
+        if not DC.MN then -- can no lonber work in Midnight
+            if RequestedPrio and NeededPrio ~= RequestedPrio then
+                D:errln(L["HLP_WRONGMBUTTON"]);
+                if NeededPrio and MF_colors[NeededPrio] then
+                    D:Println(L["HLP_USEXBUTTONTOCURE"], D:ColorText(DC.MouseButtonsReadable[ D.db.global.MouseButtons[NeededPrio] ], D:NumToHexColor(MF_colors[NeededPrio])));
+                    --@debug@
+                else
+                    D:AddDebugText("Button wrong click info bug: NeededPrio:", NeededPrio, "Unit:", Unit, "RequestedPrio:", RequestedPrio, "Button clicked:", Button, "MF_colors:", unpack(MF_colors), "Debuff Type:", frame.Object.Debuffs[1].Type);
+                    --@end-debug@
+                end
+            elseif RequestedPrio and D.Status.HasSpell then -- useless block in Midnight as there is no CLEU anymore to detect cast failures.
+                D.Status.ClickCastingWIP = true;
+                D:Debug("ClickCastingWIP")
+                D.Status.ClickedMF = frame.Object; -- used to update the MUF on cast success and failure to know which unit is being cured
+                D.Status.ClickedMF.SPELL_CAST_SUCCESS = false;
+                local spell = D.Status.CuringSpells[frame.Object.Debuffs[1].Type];
 
-            D.Status.ClickedMF.CastingSpell = "notyet";
-            D:Debuff_History_Add(frame.Object.Debuffs[1].Name, frame.Object.Debuffs[1].TypeName, frame.Object.Debuffs[1].SpellID);
+                D.Status.ClickedMF.CastingSpell = "notyet";
+                D:Debuff_History_Add(frame.Object.Debuffs[1].Name, frame.Object.Debuffs[1].TypeName, frame.Object.Debuffs[1].SpellID);
+            end
         end
     end
 end -- }}}
@@ -1079,6 +1098,7 @@ function MicroUnitF.prototype:init(Container, Unit, FrameNum, ID) -- {{{
     -- create the frame
     self.Frame  = CreateFrame ("Button", nil, self.Parent, "DcrMicroUnitTemplateSecure");
     self.CooldownFrame = CreateFrame ("Cooldown", nil, self.Frame, "DcrMicroUnitCDTemplate");
+    self.CooldownFrame:SetHideCountdownNumbers(true)
 
     if petminus ~= 0 then
         self.Frame:SetWidth(20 - petminus);

@@ -228,7 +228,7 @@ function T._AddDebugText(a1, ...) -- {{{
     local zone = GetRealZoneText() or "none";
 
     if not Reported[text] then
-        table.insert (DebugTextTable,  ("\n\n|cffff0000*****************|r\n\n%.4f (tr:'%s' ca:'%s' icl:'%s' rs:'%s' h%d_w%d-%dfps-%s): %s -|count: "):format(
+        table.insert (DebugTextTable,  ("\n\n|cffff0000*****************|r\n\n%.4f (tr:'%s' ca:'%s' icl:'%s' rs:'%s' h%d_w%d-%dfps-%s-ttd:%d): %s -|count: "):format(
         NiceTime(), -- %.4f
         tostring(T._DebugTimerRefName), -- tr:'%s'
         tostring(T._CatchAllErrors), -- ca:'%s'
@@ -238,6 +238,7 @@ function T._AddDebugText(a1, ...) -- {{{
         select(4, GetNetStats()), -- w%d
         GetFramerate(), -- %dfps
         zone, -- -%s
+        T.Dcr.temp_tt_taint_debug or -1337, -- ttd:%d (tooltip debug)
         text -- %s
         ));
         table.insert (DebugTextTable, 1);
@@ -308,7 +309,7 @@ do
 
         if fromDiag or not T.Dcr.db or not T.Dcr.db.global.NewerVersionName or T._HHTDErrors ~= 0 then
             if T.Dcr.L and T.Dcr.L["DEBUG_REPORT_HEADER"] then
-                -- Create the header insterting the email address and
+                -- Create the header inserting the email address and
                 -- influencing the content if this is an HHTD error.
                 instructionsHeader = (T.Dcr.L["DEBUG_REPORT_HEADER"]):format(
 
@@ -580,7 +581,7 @@ function T._onError(event, fromBG)
             taintingAccusation = true;
         end
 
-        if not taintingAccusation or T._EmbeddedMode == false then -- if we are having this while we're not emebedding anything then it does matters
+        if not taintingAccusation or T._EmbeddedMode == false then -- if we are having this while we're not embedding anything then it does matters
             IsReporting = true;
             AddDebugText(errorObject.message, "\n|cff00aa00STACK:|r\n", errorObject.stack, "\n|cff00aa00LOCALS:|r\n", errorObject.locals);
             IsReporting = false;
@@ -672,6 +673,8 @@ DC.CATACLYSM = WOW_PROJECT_CATACLYSM_CLASSIC ~= nil and WOW_PROJECT_ID >= WOW_PR
 DC.TWW = tocversion >= 110000
 DC.MN = tocversion >= 120000
 DC.BCC = tocversion >= 20505 and tocversion < 30000
+DC.MOP = tocversion >= 50504 and tocversion < 60000
+DC.TWELVEONE = tocversion >= 120100
 
 
 

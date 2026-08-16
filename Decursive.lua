@@ -409,8 +409,14 @@ do
 
     local filter = DC.MN and "RAID_PLAYER_DISPELLABLE" or nil
 
-    local UnitDebuff        = _G.UnitDebuff or function (unitToken, i)
-        local auraData = C_UnitAuras.GetDebuffDataByIndex(unitToken, i, filter);
+    local UnitDebuff        = (not DC.MN and _G.UnitDebuff) or function (unitToken, i)
+
+        -- this mechanism is completely disabled in 12.1 so do nothing for now...
+        if DC.TWELVEONE then
+            return nil
+        end
+
+        local auraData = C_UnitAuras.GetDebuffDataByIndex(unitToken, i, filter); -- forbidden in 12.1...
 
         if not auraData then
 			return nil;
@@ -428,6 +434,8 @@ do
 		auraData.spellId,
         DC.MN and auraData.auraInstanceID or nil;
     end
+
+    D.UnitDebuff = UnitDebuff -- it's reused in dcr_events
 
     local UnitIsCharmed     = _G.UnitIsCharmed;
     local UnitCanAttack     = _G.UnitCanAttack;

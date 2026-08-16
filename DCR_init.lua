@@ -431,6 +431,12 @@ local function SetRuntimeConstants_Once () -- {{{
                 Better = 0,
                 Pet = false,
             },
+            -- Blood elfs
+            --[=[[DSI["SPELL_ARCANE_TORRENT"]] = {
+                Types = {DC.ENEMYMAGIC},
+                Better = 0,
+                Pet = false,
+            },--]=]
             -- Demon Hunters (global)
             [DSI["SPELL_CONSUME_MAGIC"]] = {
                 Types = {DC.ENEMYMAGIC},
@@ -1100,17 +1106,20 @@ function D:OnInitialize() -- Called on ADDON_LOADED by AceAddon -- {{{
 
     -- Register slashes command {{{
     self:RegisterChatCommand("dcrdiag"      ,function() T._SelfDiagnostic(true, true)               end         );
-    self:RegisterChatCommand("decursive"    ,function() LibStub("AceConfigDialog-3.0"):Open(D.name) end         );
-    self:RegisterChatCommand("dcrpradd"     ,function() D:AddTargetToPriorityList()                 end, false  );
-    self:RegisterChatCommand("dcrprclear"   ,function() D:ClearPriorityList()                       end, false  );
-    self:RegisterChatCommand("dcrprshow"    ,function() D:ShowHidePriorityListUI()                  end, false  );
-    self:RegisterChatCommand("dcrskadd"     ,function() D:AddTargetToSkipList()                     end, false  );
-    self:RegisterChatCommand("dcrskclear"   ,function() D:ClearSkipList()                           end, false  );
-    self:RegisterChatCommand("dcrskshow"    ,function() D:ShowHideSkipListUI()                      end, false  );
-    self:RegisterChatCommand("dcrreset"     ,function() D:ResetWindow()                             end, false  );
-    self:RegisterChatCommand("dcrshow"      ,function() D:HideBar(0)                                end, false  );
-    self:RegisterChatCommand("dcrhide"      ,function() D:HideBar(1)                                end, false  );
-    self:RegisterChatCommand("dcrshoworder" ,function() D:Show_Cure_Order()                         end, false  );
+
+    if not DC.TWELVEONE then
+        self:RegisterChatCommand("decursive"    ,function() LibStub("AceConfigDialog-3.0"):Open(D.name) end         );
+        self:RegisterChatCommand("dcrpradd"     ,function() D:AddTargetToPriorityList()                 end, false  );
+        self:RegisterChatCommand("dcrprclear"   ,function() D:ClearPriorityList()                       end, false  );
+        self:RegisterChatCommand("dcrprshow"    ,function() D:ShowHidePriorityListUI()                  end, false  );
+        self:RegisterChatCommand("dcrskadd"     ,function() D:AddTargetToSkipList()                     end, false  );
+        self:RegisterChatCommand("dcrskclear"   ,function() D:ClearSkipList()                           end, false  );
+        self:RegisterChatCommand("dcrskshow"    ,function() D:ShowHideSkipListUI()                      end, false  );
+        self:RegisterChatCommand("dcrreset"     ,function() D:ResetWindow()                             end, false  );
+        self:RegisterChatCommand("dcrshow"      ,function() D:HideBar(0)                                end, false  );
+        self:RegisterChatCommand("dcrhide"      ,function() D:HideBar(1)                                end, false  );
+        self:RegisterChatCommand("dcrshoworder" ,function() D:Show_Cure_Order()                         end, false  );
+    end
     self:RegisterChatCommand("dcrreport"    ,function() T._ShowDebugReport()                         end, false  );
     -- }}}
 
@@ -1152,6 +1161,18 @@ function D:OnEnable() -- called after PLAYER_LOGIN -- {{{
         return false;
     end
 
+
+    if DC.TWELVEONE then
+        if not self.db.global.TwelveOneIncompatibleMessageWasShown  then
+            T._ShowNotice("|cff00ff00Decursive version: @project-version@|r\n\n" .. "|cFFFFAA66"
+            .. "This version of Decursive is not compatible with WoW 12.1.x.\nDecursive will now stay hidden until it is updated with a compatible version.\n\n|cffffff00Check the release notes for more details.|r\n\n|cffff0000This message will not be shown again|r."
+            .. "|r")
+
+            self.db.global.TwelveOneIncompatibleMessageWasShown = true;
+        end
+        return false;
+    end
+
     T._CatchAllErrors = "OnEnable"; -- During init we catch all the errors else, if a library fails we won't know it.
     D.debug = D.db.global.debug;
 
@@ -1180,9 +1201,7 @@ function D:OnEnable() -- called after PLAYER_LOGIN -- {{{
     -- these events are automatically stopped when the addon is disabled by Ace
 
     -- Spell changes events
-    if not DC.MN and not DC.BCC then
-        D.eventFrame:RegisterEvent("LEARNED_SPELL_IN_TAB");
-    end
+    D.eventFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE");
     D.eventFrame:RegisterEvent("SPELLS_CHANGED");
     D.eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED");
     D.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED");
@@ -1251,6 +1270,7 @@ function D:SetConfiguration() -- {{{
     if T._SelfDiagnostic() == 2 then
         return false;
     end
+    local prev_CatchAllErrors = T._CatchAllErrors
     T._CatchAllErrors = "SetConfiguration"; -- During init we catch all the errors else, if a library fails we won't know it.
 
     D.DcrFullyInitialized = false;
@@ -1465,7 +1485,7 @@ function D:SetConfiguration() -- {{{
     end
 
 
-    T._CatchAllErrors = false; -- During init we catch all the errors else, if a library fails we won't know it.
+    T._CatchAllErrors = prev_CatchAllErrors; -- During init we catch all the errors else, if a library fails we won't know it.
     D:VersionWarnings();
 end -- }}}
 
@@ -1882,6 +1902,7 @@ function D:SetSpellsTranslations(FromDIAG) -- {{{
         T._C.EXPECTED_DUPLICATES = {};
 
         T._C.DSI = { -- Main spell table for WoW Retail {{{
+            -- ["SPELL_ARCANE_TORRENT"]        =  28730, -- enemy magic dispell but 8 yards around self so no targetting
             ["SPELL_POLYMORPH"]             =  118,
             ["SPELL_COUNTERSPELL"]          =  2139,
             ["SPELL_CYCLONE"]               =  33786,
