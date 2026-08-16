@@ -1106,20 +1106,17 @@ function D:OnInitialize() -- Called on ADDON_LOADED by AceAddon -- {{{
 
     -- Register slashes command {{{
     self:RegisterChatCommand("dcrdiag"      ,function() T._SelfDiagnostic(true, true)               end         );
-
-    if not DC.TWELVEONE then
-        self:RegisterChatCommand("decursive"    ,function() LibStub("AceConfigDialog-3.0"):Open(D.name) end         );
-        self:RegisterChatCommand("dcrpradd"     ,function() D:AddTargetToPriorityList()                 end, false  );
-        self:RegisterChatCommand("dcrprclear"   ,function() D:ClearPriorityList()                       end, false  );
-        self:RegisterChatCommand("dcrprshow"    ,function() D:ShowHidePriorityListUI()                  end, false  );
-        self:RegisterChatCommand("dcrskadd"     ,function() D:AddTargetToSkipList()                     end, false  );
-        self:RegisterChatCommand("dcrskclear"   ,function() D:ClearSkipList()                           end, false  );
-        self:RegisterChatCommand("dcrskshow"    ,function() D:ShowHideSkipListUI()                      end, false  );
-        self:RegisterChatCommand("dcrreset"     ,function() D:ResetWindow()                             end, false  );
-        self:RegisterChatCommand("dcrshow"      ,function() D:HideBar(0)                                end, false  );
-        self:RegisterChatCommand("dcrhide"      ,function() D:HideBar(1)                                end, false  );
-        self:RegisterChatCommand("dcrshoworder" ,function() D:Show_Cure_Order()                         end, false  );
-    end
+    self:RegisterChatCommand("decursive"    ,function() LibStub("AceConfigDialog-3.0"):Open(D.name) end         );
+    self:RegisterChatCommand("dcrpradd"     ,function() D:AddTargetToPriorityList()                 end, false  );
+    self:RegisterChatCommand("dcrprclear"   ,function() D:ClearPriorityList()                       end, false  );
+    self:RegisterChatCommand("dcrprshow"    ,function() D:ShowHidePriorityListUI()                  end, false  );
+    self:RegisterChatCommand("dcrskadd"     ,function() D:AddTargetToSkipList()                     end, false  );
+    self:RegisterChatCommand("dcrskclear"   ,function() D:ClearSkipList()                           end, false  );
+    self:RegisterChatCommand("dcrskshow"    ,function() D:ShowHideSkipListUI()                      end, false  );
+    self:RegisterChatCommand("dcrreset"     ,function() D:ResetWindow()                             end, false  );
+    self:RegisterChatCommand("dcrshow"      ,function() D:HideBar(0)                                end, false  );
+    self:RegisterChatCommand("dcrhide"      ,function() D:HideBar(1)                                end, false  );
+    self:RegisterChatCommand("dcrshoworder" ,function() D:Show_Cure_Order()                         end, false  );
     self:RegisterChatCommand("dcrreport"    ,function() T._ShowDebugReport()                         end, false  );
     -- }}}
 
