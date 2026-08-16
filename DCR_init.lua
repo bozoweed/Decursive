@@ -1158,18 +1158,6 @@ function D:OnEnable() -- called after PLAYER_LOGIN -- {{{
         return false;
     end
 
-
-    if DC.TWELVEONE then
-        if not self.db.global.TwelveOneIncompatibleMessageWasShown  then
-            T._ShowNotice("|cff00ff00Decursive version: @project-version@|r\n\n" .. "|cFFFFAA66"
-            .. "This version of Decursive is not compatible with WoW 12.1.x.\nDecursive will now stay hidden until it is updated with a compatible version.\n\n|cffffff00Check the release notes for more details.|r\n\n|cffff0000This message will not be shown again|r."
-            .. "|r")
-
-            self.db.global.TwelveOneIncompatibleMessageWasShown = true;
-        end
-        return false;
-    end
-
     T._CatchAllErrors = "OnEnable"; -- During init we catch all the errors else, if a library fails we won't know it.
     D.debug = D.db.global.debug;
 
