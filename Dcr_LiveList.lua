@@ -108,6 +108,17 @@ local function cancompare(a,b)
     return canaccessvalue(a) and canaccessvalue(b);
  end
 
+-- T-A.5/H2b: pcall-protected GetAuraApplicationDisplayCount — used by LiveList:Update's
+-- secretMode branch below. In secret mode the underlying API may throw if invoked on a
+-- secret-gated auraInstanceID; this wrapper catches the error and returns nil so the
+-- caller's existing `or ""` fallback applies instead of a tainted-error propagation.
+-- Behaviour is unchanged on success (H2b true): count returned exactly as-is (note: 0
+-- stays truthy in Lua so the `or ""` short-circuit only triggers on nil/pcall-failure).
+local function safe_get_app_count(unit, auraInstanceID, which)
+    local ok, count = pcall(_G.C_UnitAuras.GetAuraApplicationDisplayCount, unit, auraInstanceID, which)
+    return ok and count or nil
+end
+
 
 -- defines what is printed when the object is read as a string
 function LiveList:ToString() -- {{{
@@ -319,7 +330,11 @@ function LiveList.prototype:SetDebuff(UnitID, Debuff, IsCharmed) -- {{{
         self.PrevDebuffApplicaton = Debuff.Applications
         local appDisplayString
         if Debuff.secretMode then
-            appDisplayString = Debuff.auraInstanceID and C_UnitAuras.GetAuraApplicationDisplayCount(UnitID, Debuff.auraInstanceID, 1) or ""
+            -- T-A.5/H2b: pcall-protected GetAuraApplicationDisplayCount (see local
+            -- helper). On secret throw → nil → falls to the `or ""` fallback (no
+            -- display string) instead of tainting. The `Debuff.auraInstanceID and`
+            -- short-circuit is preserved.
+            appDisplayString = Debuff.auraInstanceID and safe_get_app_count(UnitID, Debuff.auraInstanceID, 1) or ""
         else
             appDisplayString = Debuff.Applications > 1 and Debuff.Applications or ""
         end

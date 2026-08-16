@@ -77,6 +77,52 @@ local UnitClass         = _G.UnitClass;
 local UnitExists        = _G.UnitExists;
 local GetNetStats       = _G.GetNetStats;
 local canaccessvalue    = _G.canaccessvalue or function(_) return true; end
+local GetCVarBool       = _G.GetCVarBool;
+
+-- T0.1: single source of truth for the "aura access restricted" guard.
+-- Hoisted to top-level so it is lexically reachable by the UnitDebuff closure below
+-- (first do-block) AND by the UnitBuff function in the later do-block — these were
+-- previously duplicating the same boolean expression (inline @ L.412 below and local
+-- function @ L.935). Also exposed as D.auraAccessRestricted for cross-file consumers
+-- (Dcr_DebuffsFrame.lua SetDebuffs guard — T-C.1/T-C.2). DC.MN is bound at L.61.
+-- Behavior in NON-MN and NON-restricted context is unchanged (I4).
+local function auraAccessRestricted()
+    return DC.MN and (InCombatLockdown() or GetCVarBool("secretAurasForced"))
+end
+D.auraAccessRestricted = auraAccessRestricted
+
+-- T-A.1: per-unit event-fed cache populated by D:StoreEventAura from the UNIT_AURA
+-- "addedAuras" payload, consumed by D:GetUnitDebuffAll when auraAccessRestricted()
+-- is true. Lifetime: bounded to the duration of combat — wiped on
+-- PLAYER_REGEN_ENABLED (Dcr_Events.lua T-C.2 / R-T6).
+-- HYPOTHESIS H1: aura.auraInstanceID stays accessible in secret (no code assertion —
+--   to be validated empirically; see doc/ADR-taint-bypass.md §9).
+D.EventDebuffCache = {}
+
+-- T-A.2 helper: store one harmful (non-helpful) aura entry from the "addedAuras"
+--   payload of UNIT_AURA. CALLER MUST guard with `canaccessvalue(aura.isHelpful)` first
+--   (H1c): when aura.isHelpful is itself inaccessible, the caller must SKIP the aura
+--   entirely (do not call this helper) to avoid false positives. The helper skips
+--   entries whose auraInstanceID is inaccessible (H1 false → Couche A ineffective for
+--   that aura, falls back to Couche C stale-preserve only).
+function D:StoreEventAura(Unit, aura)
+    if not Unit or not aura then return end
+    local auraInstanceID = canaccessvalue(aura.auraInstanceID) and aura.auraInstanceID or nil
+    if not auraInstanceID then return end -- H1 fails for this aura: skip silently
+    local unitCache = self.EventDebuffCache[Unit]
+    if not unitCache then
+        unitCache = {}
+        self.EventDebuffCache[Unit] = unitCache
+    end
+    unitCache[#unitCache + 1] = {
+        auraInstanceID = auraInstanceID,
+        name           = canaccessvalue(aura.name)        and aura.name        or nil, -- may be nil (secret)
+        spellId        = canaccessvalue(aura.spellId)     and aura.spellId     or nil, -- may be nil (secret)
+        applications   = canaccessvalue(aura.applications)and aura.applications or 0,  -- 0 when secret
+        dispelName     = canaccessvalue(aura.dispelName)  and aura.dispelName  or nil, -- may be nil; drives T-A.4 blunt fallback
+    }
+end
+
 local _;
 
 -------------------------------------------------------------------------------
@@ -407,10 +453,21 @@ do
     local D                 = D;
     local C_UnitAuras       = _G.C_UnitAuras
 
+    -- T-A.5 / H2: pcall-protected GetAuraDispelTypeColor — used by the normal scan
+    -- loop below (and by the Couche A event-fed branch) so that any secret-gated
+    -- error is caught instead of propagating as tainted-error. On failure (H2 false)
+    -- returns nil (the existing `elseif s_color then` branch then falls to Type=false,
+    -- which means the entry is not registered → no false positive; Couche A blunt
+    -- path only uses this colour as a hint, see T-A.4).
+    local function safe_get_dispel_type_color(unit, auraInstanceID, dsCurve)
+        local ok, color = pcall(C_UnitAuras.GetAuraDispelTypeColor, unit, auraInstanceID, dsCurve)
+        return ok and color or nil
+    end
+
     local filter = DC.MN and "RAID_PLAYER_DISPELLABLE" or nil
 
     local UnitDebuff        = (not DC.MN and _G.UnitDebuff) or function (unitToken, i)
-        if DC.MN and (InCombatLockdown() or GetCVarBool("secretAurasForced")) then return nil; end
+        if auraAccessRestricted() then return nil; end -- T0.1: hoisted guard (see top-level declaration)
         local auraData = C_UnitAuras.GetDebuffDataByIndex(unitToken, i, filter);
 
         if not auraData then
@@ -528,6 +585,70 @@ do
             IsCharmed = true;
         end
 
+        -- T-A.3: Couche A — if aura-restricted (combat / secretAurasForced) and event-fed
+        -- entries exist (populated by D:StoreEventAura from UNIT_AURA "addedAuras"), consume
+        -- them WITHOUT calling C_UnitAuras.GetDebuffDataByIndex (which would throw taint in
+        -- secret mode). Entries whose auraInstanceID was inaccessible were already filtered by
+        -- D:StoreEventAura. When no event entries exist, fall through to the normal loop
+        -- (which under restriction returns empty → SetDebuffs T-C.1 preserves previous MUF
+        -- state — Couche C only for this unit).
+        if auraAccessRestricted() then
+            local evCache = self.EventDebuffCache[Unit]
+            if evCache and evCache[1] then
+                i = 1
+                StoredDebuffIndex = 1
+                for _, ev in ipairs(evCache) do
+                    local evInstanceID = ev.auraInstanceID -- H1 verified upstream by D:StoreEventAura
+
+                    -- T-A.4 blunt fallback: when dispelName is not accessible or empty
+                    -- (secret), default to first cure-order type (DEFAULT/blunt) so that
+                    -- SetDebuffs/UpdateAttributes set Debuff1Prio and the secure-cast dispel
+                    -- remains operational. Debuff.specType/color then drives the MUF tint.
+                    local evTypeName, evType
+                    if canaccessvalue(ev.dispelName) and ev.dispelName and ev.dispelName ~= "" then
+                        evTypeName = ev.dispelName
+                        evType = DC.NameToTypes[evTypeName]
+                    else
+                        evTypeName = DC.TypeNames[self.Status.ReversedCureOrder[1]]
+                        evType = DC.NameToTypes[evTypeName]
+                    end
+
+                    -- T-A.5 / H2: pcall-protected GetAuraDispelTypeColor (may throw in secret)
+                    local s_color = DC.MN and evInstanceID and
+                        safe_get_dispel_type_color(Unit, evInstanceID, self.Status.dsCurve)
+
+                    if not ThisUnitDebuffs[StoredDebuffIndex] then
+                        ThisUnitDebuffs[StoredDebuffIndex] = {}
+                    end
+                    local entry = ThisUnitDebuffs[StoredDebuffIndex]
+                    entry.Duration       = false
+                    entry.ExpirationTime = false
+                    entry.Texture        = "Interface\\AddOns\\Decursive\\iconON.tga"
+                    entry.Applications   = ev.applications or 0
+                    entry.TypeName       = evTypeName
+                    entry.Type           = evType
+                    entry.Name           = ev.name or "*secret*"
+                    entry.SpellID        = ev.spellId
+                    entry.auraInstanceID = evInstanceID
+                    entry.secretMode     = true
+                    entry.s_color        = s_color
+                    entry.index          = i
+
+                    StoredDebuffIndex = StoredDebuffIndex + 1
+                    i = i + 1
+                end
+
+                -- erase remaining unused entries without freeing the memory (less garbage)
+                while (ThisUnitDebuffs[StoredDebuffIndex]) do
+                    ThisUnitDebuffs[StoredDebuffIndex].Type = false
+                    StoredDebuffIndex = StoredDebuffIndex + 1
+                end
+
+                return ThisUnitDebuffs, IsCharmed
+            end
+            -- else: no event entries for this unit; fall through to the normal unfed scan.
+        end
+
         -- iterate all available debuffs
         while true do
             if not GetUnitDebuff(Unit, i) then
@@ -555,7 +676,8 @@ do
             end
             --@end-debug@
 
-            local s_color = DC.MN and auraInstanceID and C_UnitAuras.GetAuraDispelTypeColor(Unit, auraInstanceID, D.Status.dsCurve)
+            local s_color = DC.MN and auraInstanceID and
+                safe_get_dispel_type_color(Unit, auraInstanceID, self.Status.dsCurve) -- T-A.5/H2: pcall-wrapped (see safe_get_dispel_type_color above)
 
             -- test for a type
             if not secretMode then
@@ -930,11 +1052,10 @@ do
     local G_UnitBuff = _G.UnitBuff; -- In 10.2.5 UnitBuff and acolytes were deprecated and are falling back to calling C_UnitAuras functions which create a new table each time and thus leak garbage each time they return debuff info... (if only we could provide those functions with a table to use...)
     local GetAuraDataBySpellName = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName or nil;
     local buffName;
-    local GetCVarBool = _G.GetCVarBool
-
-    local function auraAccessRestricted()
-        return DC.MN and (InCombatLockdown() or GetCVarBool("secretAurasForced"))
-    end
+    -- auraAccessRestricted() is now hoisted to top-level (T0.1); removed the duplicate
+    -- local function. Its sole consumer (the UnitBuff closure below) resolves the
+    -- hoisted top-level local transparently. GetCVarBool local also removed (only
+    -- the now-removed duplicate function used it).
 
     local function UnitBuff(unit, BuffNameToCheck)
 

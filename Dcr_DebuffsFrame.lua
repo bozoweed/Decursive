@@ -87,6 +87,18 @@ local GetRaidTargetIndex= _G.GetRaidTargetIndex;
 local CreateFrame       = _G.CreateFrame;
 local canaccessvalue    = _G.canaccessvalue or function(_) return true; end
 
+-- T-A.5/H2b: pcall-protected GetAuraApplicationDisplayCount — used by the MUF tooltip
+-- and the MUF center-text display below. In secret mode the underlying API may throw
+-- if invoked on a secret-gated auraInstanceID; this wrapper catches the error and
+-- returns nil so each caller's existing `or` fallback (Debuff.Applications /
+-- self.CenterText) applies instead of a tainted-error propagation. Behaviour is
+-- unchanged when the API succeeds (H2b true): nil/0/positive-count are returned
+-- exactly as-is (note: 0 stays truthy in Lua so display semantics are preserved).
+local function safe_get_app_count(unit, auraInstanceID, which)
+    local ok, count = pcall(_G.C_UnitAuras.GetAuraApplicationDisplayCount, unit, auraInstanceID, which)
+    return ok and count or nil
+end
+
 -- NS def
 D.MicroUnitF = {};
 -- create a shortcut
@@ -775,8 +787,16 @@ do
                     or
                     D:ColorTextNA(Debuff.Name, D.profile.TypeColors[Debuff.Type])
 
-                local appCount = s_color and Debuff.auraInstanceID and
-                    C_StringUtil.WrapString(C_UnitAuras.GetAuraApplicationDisplayCount(unit, Debuff.auraInstanceID, 1), " (x", ")")
+                -- T-A.5/H2b: pcall-protected GetAuraApplicationDisplayCount (see local
+                -- helper at the top of file). The `s_color and Debuff.auraInstanceID
+                -- and safe_get_app_count(...)` chain preserves the original's
+                -- short-circuit (no API fetch when s_color/auraInstanceID is falsy).
+                -- On pcall failure (secret throw) evAppCount is nil and the existing
+                -- `or` fallback (Debuff.Applications) takes over.
+                local evAppCount = s_color and Debuff.auraInstanceID and
+                    safe_get_app_count(unit, Debuff.auraInstanceID, 1)
+                local appCount = evAppCount and
+                    C_StringUtil.WrapString(evAppCount, " (x", ")")
                     or
                     (Debuff.Applications > 0 and (" (x%s)"):format(Debuff.Applications) or "")
 
@@ -1363,6 +1383,28 @@ end -- }}}
 
 function MicroUnitF.prototype:SetDebuffs(o_auraUpdateInfo) -- {{{
 
+    -- T-C.1: Couche C preserve-stale guard. When aura access is restricted (combat /
+    -- secretAurasForced) AND there is no fresh event-fed data for THIS unit (Couche A
+    -- cache empty), `D:UnitCurableDebuffs` would return EMPTY_TABLE (the UnitDebuff
+    -- closure at Decursive.lua:470 returns nil under restriction → ManagedDebuffs empty
+    -- → `return DC.EMPTY_TABLE, false` at Decursive.lua:940). That would wipe a
+    -- still-accurate MUF display mid-combat. Preserve the previous Debuffs /
+    -- IsCharmed / Debuff1Prio so the MUF keeps showing the last-known state for the
+    -- duration of restriction. When fresh event-fed data DOES exist, the Couche A
+    -- branch in GetUnitDebuffAll returns it via UnitCurableDebuffs and we refresh
+    -- normally — the guard only short-circuits the empty-out case. The presence test
+    -- `evCache and evCache[1]` mirrors exactly GetUnitDebuffAll's Couche A decision at
+    -- Decursive.lua:596-597. Non-MN: the exposed D.auraAccessRestricted() returns
+    -- `DC.MN and (...)` → false, so the guard is inert and behaviour is unchanged (I4).
+    -- The `D.auraAccessRestricted and` short-circuit guards against the addon being
+    -- loaded in an unexpected order.
+    if D.auraAccessRestricted and D.auraAccessRestricted() then
+        local evCache = D.EventDebuffCache and D.EventDebuffCache[self.CurrUnit]
+        if not (evCache and evCache[1]) and self.Debuffs and self.Debuffs[1] then
+            return -- preserve previous Debuffs, IsCharmed, Debuff1Prio (Couche C)
+        end
+    end
+
     self.Debuffs, self.IsCharmed = D:UnitCurableDebuffs(self.CurrUnit);
 
     if self.Debuffs[1] then
@@ -1564,8 +1606,13 @@ do
                         self.CenterText = debuff_1.Applications;
                         local appAccess = canaccessvalue(self.CenterText)
 
+                        -- T-A.5/H2b: pcall-protected GetAuraApplicationDisplayCount (see
+                        -- local helper). The existing `debuff_1.s_color and
+                        -- debuff_1.auraInstanceID and` short-circuit is preserved (no API
+                        -- fetch when either is falsy). On secret throw → nil → falls to
+                        -- the CenterText `or` fallback below (existing behaviour).
                         local appCount = debuff_1.s_color and debuff_1.auraInstanceID and
-                            C_UnitAuras.GetAuraApplicationDisplayCount(Unit, debuff_1.auraInstanceID, 1)
+                            safe_get_app_count(Unit, debuff_1.auraInstanceID, 1)
                             or
                             (appAccess and self.CenterText > 0 and self.CenterText or "")
 

@@ -363,6 +363,19 @@ do
         --D:Debug("Leaving combat");
         self.Status.Combat = false;
 
+        -- T-C.2 / R-T5: leaving combat MUST trigger a full rescan so MUFs reconcile
+        -- actual data (Couche C stale + Couche A event-fed were only meant for the
+        -- duration of combat). Also wipe the per-unit event-fed cache (R-T6 lifetime
+        -- bound — entries should not survive combat). Force_FullUpdate is internally
+        -- InCombatLockdown-guarded so calling it post-combat is safe. MN only (the
+        -- restriction/secret-auras mechanism does not exist pre-MN).
+        if DC.MN then
+            if D.EventDebuffCache then
+                table.wipe(D.EventDebuffCache)
+            end
+            self.MicroUnitF:Force_FullUpdate()
+        end
+
         -- test for debug report
         if #T._DebugTextTable > 0 and GetTime() - LastDebugReportNotification > 300 * 3 then
             if LastDebugReportNotification == 0 then
@@ -411,6 +424,13 @@ do
             D:Debug("ARSC: ", event, r_toString[restrictionType], s_toString[restrictionState])
 
             currentState[restrictionType] = restrictionState
+
+            -- T-C.2 / R-T5: schedule a full MUF refresh so the display reconciles with
+            -- actual aura availability (prime trigger: restriction state transitions to
+            -- S_Inactive = scan possible again; S_Activating/S_Active also handled here
+            -- for symmetry). Force_FullUpdate is internally InCombatLockdown-guarded so
+            -- the call is safe regardless of the current state.
+            self.MicroUnitF:Force_FullUpdate()
         end
     else
         function D:currentRestrictionsStr()
@@ -619,13 +639,29 @@ do
 
                     if UnitID then -- (this test is enough, if the unit is known we definetely need to scan it, whatever is its status...) {{{3
 
-                        if  canaccessvalue(aura.isHelpful) and aura.isHelpful and self.profile.Show_Stealthed_Status then
+                        -- H1c defense: when `aura.isHelpful` itself is inaccessible (secret),
+                        -- we cannot tell buff from debuff — SKIP this aura entirely (do not
+                        -- classify, do not populate the event-fed cache, do not schedule
+                        -- checkForDebuff). Keep iterating subsequent auras so a classified
+                        -- one is still processed. This avoids false positives (a secret buff
+                        -- treated as a debuff and raising a stale MUF).
+                        local accessibleHelpful = canaccessvalue(aura.isHelpful)
 
-                            if DC.IS_STEALTH_BUFF[secretedName] then
+                        if not accessibleHelpful then
+                            -- SKIP — neither buff nor debuff: continue with next aura
+                        elseif aura.isHelpful then
+                            -- helpful buff (T-#B1): JAMAIS populate Couche A. Stealth tracking
+                            -- is gated by Show_Stealthed_Status; no break preserves subsequent debuffs.
+                            if self.profile.Show_Stealthed_Status and DC.IS_STEALTH_BUFF[secretedName] then
                                 self.Stealthed_Units[UnitID] = aura.auraInstanceID;
                                 self.MicroUnitF:UpdateMUFUnit(UnitID);
                             end
                         else
+                            -- harmful aura (debuff): populate the per-unit event-fed cache
+                            -- (T-A.2 / Couche A). The helper skips entries whose
+                            -- auraInstanceID is inaccessible (H1 fails), so Couche A falls
+                            -- back to Couche C stale-preserve only for those.
+                            D:StoreEventAura(UnitID, aura)
                             self:checkForDebuff(UnitID)
                             break;
                         end
