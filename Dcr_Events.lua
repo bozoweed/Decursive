@@ -597,7 +597,7 @@ do
 
 
         if DC.MN then -- classic versioins still use CLEU and although they support UNIT_AURA as well CLEU provides more features
-            if o_auraUpdateInfo.removedAuraInstanceIDs then
+            if o_auraUpdateInfo.removedAuraInstanceIDs and canaccessvalue(o_auraUpdateInfo.removedAuraInstanceIDs) then
                 self:checkForDebuff(UnitID)
 
                 for _, id in pairs(o_auraUpdateInfo.removedAuraInstanceIDs) do
@@ -608,7 +608,7 @@ do
                 end
             end
 
-            if o_auraUpdateInfo.updatedAuraInstanceIDs and self.Status.CenterTextDisplay == "3_STACKS" then
+            if o_auraUpdateInfo.updatedAuraInstanceIDs and canaccessvalue(o_auraUpdateInfo.updatedAuraInstanceIDs) and self.Status.CenterTextDisplay == "3_STACKS" then
                 self:checkForDebuff(UnitID)
             end
 
