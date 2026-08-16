@@ -1542,6 +1542,14 @@ do
                 DebuffType = debuff_1.Type;
 
                 self.Color = MF_colors[self.Debuff1Prio]; -- so people can play with the color settings (don't put it after the if).
+                -- T-R2: Couche A secret path may run with MF_colors[prio] still empty
+                -- (RegisterMUFcolors race under MN-restricted load). Fall back to the
+                -- user-set per-type colour (TypeColors hex string -> array {r,g,b,a}) so
+                -- the L.1742 base texture call renders even with secretMode=true and
+                -- s_color=nil. Non-secret path: debuff_1.secretMode is falsy, gate inert.
+                if (not self.Color or self.Color[1] == nil) and debuff_1.secretMode and debuff_1.Type then
+                    self.Color = D:HexColorToNum(D.profile.TypeColors[debuff_1.Type]);
+                end
                 if self.PrevDebuff1Prio ~= self.Debuff1Prio then
                     self.PrevDebuff1Prio = self.Debuff1Prio;
                     PrioChanged = true;
