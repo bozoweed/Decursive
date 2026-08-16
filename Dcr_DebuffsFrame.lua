@@ -885,7 +885,13 @@ do
                 if not MF.Debuffs[1].secretMode then
                     StatusText = L["AFFLICTEDBY"]:format(D:ColorTextNA(L[DC.TypeNames[DebuffType]:upper()], D.profile.TypeColors[DebuffType]) );
                 else
-                    StatusText = L["AFFLICTEDBY"]:format(MF.Debuffs[1].s_color:WrapTextInColorCode(MF.Debuffs[1].TypeName))
+                    -- T-R1: Couche A entries have secretMode=true with s_color=nil (RPC
+                    -- safe_get_dispel_type_color fails in secret). Mirror the short-circuit
+                    -- pattern used in the per-debuff tooltip (see ~L.785): when s_color is
+                    -- absent, fall back to ColorTextNA(TypeName, TypeColors[Type]) so the
+                    -- line stays colored-by-type without nil indexing s_color.
+                    local s_color = MF.Debuffs[1].s_color;
+                    StatusText = L["AFFLICTEDBY"]:format(s_color and s_color:WrapTextInColorCode(MF.Debuffs[1].TypeName) or D:ColorTextNA(MF.Debuffs[1].TypeName, D.profile.TypeColors[DebuffType]));
                 end
 
             elseif Status == STEALTHED then
