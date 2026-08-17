@@ -617,56 +617,69 @@ do
 
 
         if DC.MN then -- classic versioins still use CLEU and although they support UNIT_AURA as well CLEU provides more features
-            if o_auraUpdateInfo.removedAuraInstanceIDs and canaccessvalue(o_auraUpdateInfo.removedAuraInstanceIDs) then
+            -- Path X (T-X.1): outer `canaccessvalue(...)` gates on the three auraUpdateInfo
+            -- sub-payloads were conservatively redundant — D:StoreEventAura guards each
+            -- field it reads via canaccessvalue (Decursive.lua:110/119-122), and the H1c
+            -- defense below already filters per-aura. If the table itself was reported
+            -- secret in combat, the outer gate starved Couche A at the root (H9). We now
+            -- nil/table-check the sub-payloads and pcall-wrap their iteration so a "secret
+            -- table" whose `__pairs` throws does not propagate into UNIT_AURA (C3-1).
+
+            if o_auraUpdateInfo.removedAuraInstanceIDs and type(o_auraUpdateInfo.removedAuraInstanceIDs) == "table" then
                 self:checkForDebuff(UnitID)
-
-                for _, id in pairs(o_auraUpdateInfo.removedAuraInstanceIDs) do
-                    if self.Stealthed_Units[UnitID] and self.Stealthed_Units[UnitID] == id then
-                        self:Debug("STEALTH LOST: ", UnitID)
-                        self.Stealthed_Units[UnitID] = false
-                    end
-                end
-            end
-
-            if o_auraUpdateInfo.updatedAuraInstanceIDs and canaccessvalue(o_auraUpdateInfo.updatedAuraInstanceIDs) and self.Status.CenterTextDisplay == "3_STACKS" then
-                self:checkForDebuff(UnitID)
-            end
-
-            if o_auraUpdateInfo.addedAuras and canaccessvalue(o_auraUpdateInfo.addedAuras) then
-                for _, aura in pairs(o_auraUpdateInfo.addedAuras) do
-
-                    local secretedName = canaccessvalue(aura.name) and aura.name or "*secret*"
-
-                    if UnitID then -- (this test is enough, if the unit is known we definetely need to scan it, whatever is its status...) {{{3
-
-                        -- H1c defense: when `aura.isHelpful` itself is inaccessible (secret),
-                        -- we cannot tell buff from debuff — SKIP this aura entirely (do not
-                        -- classify, do not populate the event-fed cache, do not schedule
-                        -- checkForDebuff). Keep iterating subsequent auras so a classified
-                        -- one is still processed. This avoids false positives (a secret buff
-                        -- treated as a debuff and raising a stale MUF).
-                        local accessibleHelpful = canaccessvalue(aura.isHelpful)
-
-                        if not accessibleHelpful then
-                            -- SKIP — neither buff nor debuff: continue with next aura
-                        elseif aura.isHelpful then
-                            -- helpful buff (T-#B1): JAMAIS populate Couche A. Stealth tracking
-                            -- is gated by Show_Stealthed_Status; no break preserves subsequent debuffs.
-                            if self.profile.Show_Stealthed_Status and DC.IS_STEALTH_BUFF[secretedName] then
-                                self.Stealthed_Units[UnitID] = aura.auraInstanceID;
-                                self.MicroUnitF:UpdateMUFUnit(UnitID);
-                            end
-                        else
-                            -- harmful aura (debuff): populate the per-unit event-fed cache
-                            -- (T-A.2 / Couche A). The helper skips entries whose
-                            -- auraInstanceID is inaccessible (H1 fails), so Couche A falls
-                            -- back to Couche C stale-preserve only for those.
-                            D:StoreEventAura(UnitID, aura)
-                            self:checkForDebuff(UnitID)
-                            break;
+                local removedOk = pcall(function()
+                    for _, id in pairs(o_auraUpdateInfo.removedAuraInstanceIDs) do
+                        if self.Stealthed_Units[UnitID] and self.Stealthed_Units[UnitID] == id then
+                            self:Debug("STEALTH LOST: ", UnitID)
+                            self.Stealthed_Units[UnitID] = false
                         end
                     end
-                end
+                end)
+                if not removedOk then self:Debug("UNIT_AURA: removedAuraInstanceIDs iteration threw (secret table?)") end
+            end
+
+            if o_auraUpdateInfo.updatedAuraInstanceIDs and type(o_auraUpdateInfo.updatedAuraInstanceIDs) == "table" and self.Status.CenterTextDisplay == "3_STACKS" then
+                self:checkForDebuff(UnitID)
+            end
+
+            if o_auraUpdateInfo.addedAuras and type(o_auraUpdateInfo.addedAuras) == "table" then
+                local addedOk = pcall(function()
+                    for _, aura in pairs(o_auraUpdateInfo.addedAuras) do
+
+                        local secretedName = canaccessvalue(aura.name) and aura.name or "*secret*"
+
+                        if UnitID then -- (this test is enough, if the unit is known we definetely need to scan it, whatever is its status...) {{{3
+
+                            -- H1c defense: when `aura.isHelpful` itself is inaccessible (secret),
+                            -- we cannot tell buff from debuff — SKIP this aura entirely (do not
+                            -- classify, do not populate the event-fed cache, do not schedule
+                            -- checkForDebuff). Keep iterating subsequent auras so a classified
+                            -- one is still processed. This avoids false positives (a secret buff
+                            -- treated as a debuff and raising a stale MUF).
+                            local accessibleHelpful = canaccessvalue(aura.isHelpful)
+
+                            if not accessibleHelpful then
+                                -- SKIP — neither buff nor debuff: continue with next aura
+                            elseif aura.isHelpful then
+                                -- helpful buff (T-#B1): JAMAIS populate Couche A. Stealth tracking
+                                -- is gated by Show_Stealthed_Status; no break preserves subsequent debuffs.
+                                if self.profile.Show_Stealthed_Status and DC.IS_STEALTH_BUFF[secretedName] then
+                                    self.Stealthed_Units[UnitID] = aura.auraInstanceID;
+                                    self.MicroUnitF:UpdateMUFUnit(UnitID);
+                                end
+                            else
+                                -- harmful aura (debuff): populate the per-unit event-fed cache
+                                -- (T-A.2 / Couche A). The helper skips entries whose
+                                -- auraInstanceID is inaccessible (H1 fails), so Couche A falls
+                                -- back to Couche C stale-preserve only for those.
+                                D:StoreEventAura(UnitID, aura)
+                                self:checkForDebuff(UnitID)
+                                break;
+                            end
+                        end
+                    end
+                end)
+                if not addedOk then self:Debug("UNIT_AURA: addedAuras iteration threw (secret table?)") end
             end
         end -- }}}
 
